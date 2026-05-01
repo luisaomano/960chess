@@ -1,0 +1,658 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Ajedrez Online</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/chess.js/0.10.3/chess.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/peerjs@1.5.2/dist/peerjs.min.js"></script>
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+  font-family: 'Segoe UI', sans-serif;
+  background: linear-gradient(135deg, #1a1026, #2a1740);
+  color: white;
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+/* ======= PANTALLAS ======= */
+.screen { display: none; }
+.screen.active { display: flex; flex-direction: column; align-items: center; }
+
+/* ======= LOBBY / CONFIG ======= */
+#s-home, #s-config, #s-lobby, #s-join, #s-join-preview {
+  padding: 40px 20px;
+  width: 100%;
+  max-width: 400px;
+}
+
+.screen-title {
+  font-size: 28px; font-weight: bold;
+  text-align: center; margin-bottom: 8px;
+  background: linear-gradient(90deg, #bc9eff, #ffffff);
+  -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+}
+.screen-sub {
+  font-size: 14px; color: #bc9eff; text-align: center; margin-bottom: 30px;
+}
+
+.opt-group { margin-bottom: 20px; width: 100%; }
+.opt-label { font-size: 13px; color: #bc9eff; margin-bottom: 8px; text-transform: uppercase; letter-spacing: 1px; }
+.opt-row { display: flex; gap: 8px; flex-wrap: wrap; }
+.opt-btn {
+  padding: 9px 18px;
+  background: rgba(255,255,255,0.07);
+  border: 1px solid rgba(255,255,255,0.15);
+  color: #ccc; border-radius: 8px; cursor: pointer;
+  font-size: 14px; transition: all 0.15s;
+}
+.opt-btn:hover { background: rgba(255,255,255,0.13); color: white; }
+.opt-btn.sel {
+  background: #5a2d91; border-color: #9b6de0; color: white; font-weight: bold;
+}
+
+.divider { border: none; border-top: 1px solid rgba(255,255,255,0.1); margin: 20px 0; width: 100%; }
+
+.btn-primary {
+  width: 100%; padding: 13px; border-radius: 8px;
+  background: #5a2d91; border: none; color: white;
+  font-size: 15px; font-weight: bold; cursor: pointer; transition: background 0.15s;
+}
+.btn-primary:hover { background: #7b3fc2; }
+
+.btn-secondary {
+  width: 100%; padding: 11px; border-radius: 8px;
+  background: rgba(255,255,255,0.07);
+  border: 1px solid rgba(255,255,255,0.15);
+  color: #ccc; font-size: 14px; cursor: pointer; margin-top: 8px; transition: all 0.15s;
+}
+.btn-secondary:hover { background: rgba(255,255,255,0.13); color: white; }
+
+.id-box {
+  width: 100%;
+  background: rgba(255,255,255,0.08);
+  border: 1px dashed #9b6de0;
+  border-radius: 10px;
+  padding: 16px 20px;
+  margin-bottom: 16px;
+  text-align: center;
+}
+.id-label { font-size: 12px; color: #bc9eff; margin-bottom: 6px; }
+.id-value {
+  font-family: monospace; font-size: 26px; font-weight: bold;
+  color: #00ffcc; letter-spacing: 4px;
+}
+.id-copy {
+  font-size: 12px; color: #bc9eff; cursor: pointer; margin-top: 6px;
+  text-decoration: underline;
+}
+.id-copy:hover { color: white; }
+
+.info-card {
+  width: 100%;
+  background: rgba(255,255,255,0.06);
+  border-radius: 10px;
+  padding: 12px 16px;
+  margin-bottom: 16px;
+}
+.info-row {
+  display: flex; justify-content: space-between;
+  font-size: 14px; padding: 6px 0;
+  border-bottom: 1px solid rgba(255,255,255,0.07);
+}
+.info-row:last-child { border-bottom: none; }
+.info-key { color: #bc9eff; }
+
+.join-input {
+  width: 100%; padding: 12px; border-radius: 8px;
+  border: 1px solid rgba(255,255,255,0.2);
+  background: rgba(255,255,255,0.07); color: white;
+  font-size: 18px; letter-spacing: 2px; text-align: center;
+  margin-bottom: 12px; font-family: monospace;
+}
+.join-input::placeholder { color: rgba(255,255,255,0.3); letter-spacing: 1px; font-size: 14px; font-family: sans-serif; }
+
+.waiting { color: #bc9eff; font-size: 13px; text-align: center; margin: 10px 0; animation: pulse 1.5s infinite; }
+@keyframes pulse { 0%,100% { opacity:1 } 50% { opacity:0.4 } }
+
+/* ======= JUEGO ======= */
+#s-game {
+  padding: 16px;
+  width: 100%;
+  flex-direction: column;
+  align-items: center;
+}
+
+#game-header {
+  display: flex; justify-content: space-between; align-items: center;
+  width: 100%; max-width: 660px; margin-bottom: 10px;
+}
+
+#status-bar {
+  font-size: 15px; font-weight: bold; color: #bc9eff;
+  text-align: center; min-height: 1.4em;
+}
+.alerta { color: #ff4d4d !important; }
+
+#clocks {
+  display: flex; gap: 12px; margin: 8px 0 12px;
+  font-size: 20px; font-weight: bold;
+}
+.clock-box {
+  background: rgba(0,0,0,0.3); border-radius: 8px;
+  padding: 6px 20px; border: 1px solid transparent;
+}
+.clock-box.active { border-color: #9b6de0; }
+
+#tablero {
+  display: grid;
+  grid-template-columns: repeat(8, 66px);
+  border: 4px solid #5a2d91;
+  border-radius: 6px;
+  overflow: hidden;
+  box-shadow: 0 8px 30px rgba(0,0,0,0.5);
+}
+
+.casilla {
+  width: 66px; height: 66px;
+  display: flex; align-items: center; justify-content: center;
+  position: relative; cursor: pointer;
+}
+.clara { background: #d8c3ff; }
+.oscura { background: #6b4ca3; }
+.seleccionada { background: #ffd700 !important; }
+.destino-posible::after {
+  content: ''; width: 18px; height: 18px;
+  background: rgba(0,0,0,0.22); border-radius: 50%;
+  position: absolute;
+}
+
+.casilla img { width: 58px; cursor: grab; user-select: none; }
+.casilla img:active { cursor: grabbing; }
+
+#game-btns { display: flex; gap: 8px; margin-top: 12px; }
+.g-btn {
+  padding: 8px 14px; background: rgba(255,255,255,0.07);
+  border: 1px solid rgba(255,255,255,0.15);
+  color: #ccc; border-radius: 6px; cursor: pointer; font-size: 13px;
+}
+.g-btn:hover { background: rgba(255,255,255,0.13); color: white; }
+</style>
+</head>
+<body>
+
+<!-- HOME -->
+<div id="s-home" class="screen active">
+  <p style="font-size:40px;margin:20px 0 0;text-align:center">♟️</p>
+  <h1 class="screen-title" style="margin-top:8px">Ajedrez Online</h1>
+  <p class="screen-sub">Jugá con un amigo en tiempo real</p>
+  <button class="btn-primary" onclick="go('s-config')">Crear partida</button>
+  <button class="btn-secondary" onclick="go('s-join')">Unirse con ID</button>
+</div>
+
+<!-- CONFIG -->
+<div id="s-config" class="screen">
+  <h2 class="screen-title">Nueva partida</h2>
+  <p class="screen-sub">Configurá las reglas</p>
+
+  <div class="opt-group">
+    <p class="opt-label">⏱ Tiempo</p>
+    <div class="opt-row" id="og-time">
+      <button class="opt-btn sel" data-val="10+0">10 + 0</button>
+      <button class="opt-btn" data-val="5+5">5 + 5</button>
+      <button class="opt-btn" data-val="1+1">1 + 1</button>
+    </div>
+  </div>
+
+  <div class="opt-group">
+    <p class="opt-label">🎲 Modo</p>
+    <div class="opt-row" id="og-mode">
+      <button class="opt-btn sel" data-val="normal">Normal</button>
+      <button class="opt-btn" data-val="960">Chess 960</button>
+    </div>
+  </div>
+
+  <div class="opt-group">
+    <p class="opt-label">🎨 Tu color</p>
+    <div class="opt-row" id="og-color">
+      <button class="opt-btn sel" data-val="w">♔ Blancas</button>
+      <button class="opt-btn" data-val="b">♚ Negras</button>
+      <button class="opt-btn" data-val="r">🎲 Aleatorio</button>
+    </div>
+  </div>
+
+  <hr class="divider">
+  <button class="btn-primary" onclick="crearPartida()">Crear y obtener ID</button>
+  <button class="btn-secondary" onclick="go('s-home')">← Volver</button>
+</div>
+
+<!-- LOBBY (esperando rival) -->
+<div id="s-lobby" class="screen">
+  <h2 class="screen-title">Partida creada</h2>
+  <p class="screen-sub">Compartí tu ID con el rival</p>
+
+  <div class="id-box">
+    <p class="id-label">TU ID DE PARTIDA</p>
+    <p class="id-value" id="lobby-id">---</p>
+    <p class="id-copy" onclick="copiarId()">📋 Copiar</p>
+  </div>
+
+  <div class="info-card">
+    <div class="info-row"><span class="info-key">Tiempo</span><span id="l-time">—</span></div>
+    <div class="info-row"><span class="info-key">Modo</span><span id="l-mode">—</span></div>
+    <div class="info-row"><span class="info-key">Tu color</span><span id="l-color">—</span></div>
+  </div>
+
+  <p class="waiting" id="lobby-wait">⏳ Esperando al rival...</p>
+  <button class="btn-secondary" onclick="go('s-config')">← Cambiar configuración</button>
+</div>
+
+<!-- JOIN -->
+<div id="s-join" class="screen">
+  <h2 class="screen-title">Unirse</h2>
+  <p class="screen-sub">Ingresá el ID de la partida</p>
+  <input class="join-input" id="join-input" placeholder="ABC-123" maxlength="7" oninput="formatJoinInput(this)">
+  <button class="btn-primary" onclick="unirse()">Ver partida y unirse</button>
+  <button class="btn-secondary" onclick="go('s-home')">← Volver</button>
+  <p id="join-err" style="color:#ff4d4d;font-size:13px;margin-top:8px;text-align:center;min-height:1em"></p>
+</div>
+
+<!-- JOIN PREVIEW -->
+<div id="s-join-preview" class="screen">
+  <h2 class="screen-title">Detalles</h2>
+  <p class="screen-sub">Revisá la partida antes de entrar</p>
+
+  <div class="info-card">
+    <div class="info-row"><span class="info-key">Tiempo</span><span id="jp-time">—</span></div>
+    <div class="info-row"><span class="info-key">Modo</span><span id="jp-mode">—</span></div>
+    <div class="info-row"><span class="info-key">Tu color</span><span id="jp-color">—</span></div>
+  </div>
+
+  <button class="btn-primary" onclick="confirmarUnirse()">Unirse a la partida</button>
+  <button class="btn-secondary" onclick="go('s-join')">← Volver</button>
+</div>
+
+<!-- JUEGO -->
+<div id="s-game" class="screen">
+  <div id="game-header">
+    <button class="g-btn" onclick="rendirse()">🏳️ Rendirse</button>
+    <div id="status-bar">...</div>
+    <button class="g-btn" onclick="girar()">↕️ Girar</button>
+  </div>
+
+  <div id="clocks">
+    <div class="clock-box" id="cw">♔ <span id="tw">—</span></div>
+    <div class="clock-box" id="cb">♚ <span id="tb">—</span></div>
+  </div>
+
+  <div id="tablero"></div>
+
+  <div id="game-btns">
+    <button class="g-btn" id="btn-nueva" onclick="pedirNueva()" disabled>♻️ Nueva</button>
+    <button class="g-btn" onclick="go('s-home')">🏠 Inicio</button>
+  </div>
+</div>
+
+<script>
+// ====== ESTADO GLOBAL ======
+let juego = new Chess();
+let peer = new Peer();
+let conn = null;
+let miID = null;
+let miColor = 'w';
+let orientacion = 'w';
+let tiempo = { w: 300, b: 300 };
+let incremento = 0;
+let reloj = null;
+let partidaActiva = false;
+let sqSel = null;
+let destinosPosibles = [];
+let config = { time: '10+0', mode: 'normal', color: 'w' };
+let connPendiente = null; // info recibida al conectarse como guest
+
+const PIEZAS = 'https://lichess1.org/assets/piece/cburnett/';
+
+// Sonidos
+const sndMove    = new Audio('https://assets.mixkit.co/active_storage/sfx/2571/2571-preview.mp3');
+const sndCapture = new Audio('https://assets.mixkit.co/active_storage/sfx/2572/2572-preview.mp3');
+const sndCheck   = new Audio('https://assets.mixkit.co/active_storage/sfx/2568/2568-preview.mp3');
+
+// ====== NAVEGACIÓN ======
+function go(id) {
+  document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
+  document.getElementById(id).classList.add('active');
+}
+
+// ====== OPCIONES ======
+document.querySelectorAll('[id^="og-"]').forEach(row => {
+  row.querySelectorAll('.opt-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      row.querySelectorAll('.opt-btn').forEach(b => b.classList.remove('sel'));
+      btn.classList.add('sel');
+      const k = row.id.replace('og-', '');
+      config[k] = btn.dataset.val;
+    });
+  });
+});
+
+// ====== PEER ======
+peer.on('open', id => { miID = id; });
+
+peer.on('connection', c => {
+  conn = c;
+  setupComms();
+  // Resolvemos color
+  let colorFinal = config.color;
+  if (colorFinal === 'r') colorFinal = Math.random() < 0.5 ? 'w' : 'b';
+  miColor = colorFinal;
+  orientacion = miColor;
+  // Enviamos config al rival
+  const cfg = buildConfigFromUI();
+  const rivalColor = miColor === 'w' ? 'b' : 'w';
+  conn.send({ t: 'config', cfg, rivalColor });
+  iniciarPartida(cfg);
+  go('s-game');
+});
+
+function buildConfigFromUI() {
+  const [base, inc] = config.time.split('+').map(Number);
+  return {
+    base,
+    inc,
+    mode: config.mode,
+    hostColor: miColor
+  };
+}
+
+function setupComms() {
+  conn.on('data', data => {
+    if (data.t === 'config') {
+      // Recibido por el que se une
+      miColor = data.rivalColor;
+      orientacion = miColor;
+      connPendiente = null;
+      mostrarJoinPreview(data.cfg, data.rivalColor);
+      return;
+    }
+    if (data.t === 'start') {
+      iniciarPartida(data.cfg);
+      go('s-game');
+      return;
+    }
+    if (data.t === 'mov') {
+      juego.move(data.m);
+      tiempo = data.tiempo;
+      gestionarEfectos({ captured: data.captured, san: data.san });
+      if (!reloj) startClock();
+      render(); updateClockUI(); actualizarEstado();
+    }
+    if (data.t === 'init') {
+      juego = data.fen ? new Chess(data.fen) : new Chess();
+      iniciarPartida(data.cfg);
+    }
+    if (data.t === 'rend') finalizarJuego('🏆 El rival se rindió');
+  });
+}
+
+// ====== CREAR PARTIDA ======
+function crearPartida() {
+  go('s-lobby');
+  // Mostramos el ID (ya disponible o esperamos)
+  function mostrarLobby() {
+    if (!miID) { setTimeout(mostrarLobby, 200); return; }
+    document.getElementById('lobby-id').textContent = miID;
+    const [base, inc] = config.time.split('+').map(Number);
+    document.getElementById('l-time').textContent = config.time;
+    document.getElementById('l-mode').textContent = config.mode === '960' ? 'Chess 960' : 'Normal';
+    const cmap = { w: '♔ Blancas', b: '♚ Negras', r: '🎲 Aleatorio' };
+    document.getElementById('l-color').textContent = cmap[config.color];
+  }
+  mostrarLobby();
+}
+
+function copiarId() {
+  const id = document.getElementById('lobby-id').textContent;
+  navigator.clipboard.writeText(id).then(() => {
+    const el = document.querySelector('.id-copy');
+    el.textContent = '✅ Copiado!';
+    setTimeout(() => el.textContent = '📋 Copiar', 2000);
+  });
+}
+
+// ====== UNIRSE ======
+function formatJoinInput(el) {
+  let v = el.value.toUpperCase().replace(/[^A-Z0-9]/g, '');
+  if (v.length > 3) v = v.slice(0, 3) + '-' + v.slice(3, 6);
+  el.value = v;
+}
+
+function unirse() {
+  const id = document.getElementById('join-input').value.replace('-', '');
+  const full = document.getElementById('join-input').value.trim();
+  if (full.length < 3) {
+    document.getElementById('join-err').textContent = 'Ingresá el ID completo';
+    return;
+  }
+  document.getElementById('join-err').textContent = 'Conectando...';
+  conn = peer.connect(full);
+  conn.on('open', () => {
+    document.getElementById('join-err').textContent = '';
+    setupComms();
+    // La config llega via 'config' message
+  });
+  conn.on('error', () => {
+    document.getElementById('join-err').textContent = 'No se encontró la partida';
+  });
+}
+
+function mostrarJoinPreview(cfg, miCol) {
+  const cmap = { w: '♔ Blancas', b: '♚ Negras' };
+  document.getElementById('jp-time').textContent = cfg.base + ' + ' + cfg.inc;
+  document.getElementById('jp-mode').textContent = cfg.mode === '960' ? 'Chess 960' : 'Normal';
+  document.getElementById('jp-color').textContent = cmap[miCol] || '—';
+  go('s-join-preview');
+}
+
+function confirmarUnirse() {
+  // Avisamos al host que confirmamos
+  conn.send({ t: 'start', cfg: null });
+  // Aplicamos config ya recibida
+  // miColor ya fue seteado en setupComms
+  // Pedimos al host la cfg completa vía el mensaje 'config' ya recibido
+  // Necesitamos guardar la cfg
+  const jpTime = document.getElementById('jp-time').textContent;
+  const jpMode = document.getElementById('jp-mode').textContent;
+  const [base, inc] = jpTime.split('+').map(s => parseInt(s));
+  iniciarPartida({ base, inc, mode: jpMode === 'Chess 960' ? '960' : 'normal' });
+  go('s-game');
+}
+
+// ====== PARTIDA ======
+function iniciarPartida(cfg) {
+  partidaActiva = true;
+  clearInterval(reloj); reloj = null;
+  sqSel = null; destinosPosibles = [];
+
+  const base = cfg ? cfg.base : 10;
+  incremento = cfg ? cfg.inc : 0;
+  tiempo = { w: base * 60, b: base * 60 };
+
+  if (cfg && cfg.mode === '960') {
+    const pos960 = generar960();
+    juego = new Chess(pos960);
+  } else {
+    juego = new Chess();
+  }
+
+  document.getElementById('btn-nueva').disabled = true;
+  render(); updateClockUI(); actualizarEstado();
+}
+
+function generar960() {
+  const p = ['r','n','b','q','k','b','n','r'];
+  for (let i = p.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [p[i], p[j]] = [p[j], p[i]];
+  }
+  return p.join('') + '/pppppppp/8/8/8/8/PPPPPPPP/' + p.map(x=>x.toUpperCase()).join('') + ' w - - 0 1';
+}
+
+function pedirNueva() {
+  juego = new Chess();
+  if (conn) conn.send({ t: 'init', fen: null, cfg: { base: tiempo.w/60, inc: incremento, mode: 'normal' } });
+  iniciarPartida({ base: Math.ceil(tiempo.w/60), inc: incremento, mode: 'normal' });
+}
+
+// ====== MOVIMIENTOS ======
+function intentarMovimiento(desde, hasta) {
+  if (!partidaActiva || juego.turn() !== miColor) return false;
+  const mov = juego.move({ from: desde, to: hasta, promotion: 'q' });
+  if (!mov) return false;
+
+  tiempo[miColor] += incremento;
+  if (!reloj) startClock();
+
+  if (conn) conn.send({
+    t: 'mov',
+    m: { from: desde, to: hasta, promotion: 'q' },
+    captured: !!mov.captured,
+    san: mov.san,
+    tiempo
+  });
+
+  gestionarEfectos(mov);
+  sqSel = null; destinosPosibles = [];
+  render(); updateClockUI(); actualizarEstado();
+  return true;
+}
+
+function manejarClick(sq) {
+  if (!partidaActiva || juego.turn() !== miColor) return;
+  if (sqSel && destinosPosibles.includes(sq)) {
+    intentarMovimiento(sqSel, sq); return;
+  }
+  const pieza = juego.get(sq);
+  if (pieza && pieza.color === miColor) {
+    sqSel = sq;
+    destinosPosibles = juego.moves({ square: sq, verbose: true }).map(m => m.to);
+  } else {
+    sqSel = null; destinosPosibles = [];
+  }
+  render();
+}
+
+function onDragStart(ev, sq) {
+  if (!partidaActiva || juego.turn() !== miColor) { ev.preventDefault(); return; }
+  const p = juego.get(sq);
+  if (!p || p.color !== miColor) { ev.preventDefault(); return; }
+  sqSel = sq;
+  ev.dataTransfer.setData('text', sq);
+}
+
+function onDrop(ev, sq) {
+  ev.preventDefault();
+  intentarMovimiento(ev.dataTransfer.getData('text'), sq);
+}
+
+// ====== RENDER ======
+function render() {
+  const cont = document.getElementById('tablero');
+  cont.innerHTML = '';
+  const board = juego.board();
+  for (let r = 0; r < 8; r++) {
+    for (let c = 0; c < 8; c++) {
+      const col = orientacion === 'w' ? c : 7 - c;
+      const row = orientacion === 'w' ? r : 7 - r;
+      const sq = 'abcdefgh'[col] + (8 - row);
+
+      const d = document.createElement('div');
+      d.className = 'casilla ' + ((r + c) % 2 ? 'oscura' : 'clara');
+      if (sqSel === sq) d.classList.add('seleccionada');
+      if (destinosPosibles.includes(sq)) d.classList.add('destino-posible');
+
+      d.ondragover = e => e.preventDefault();
+      d.ondrop = e => onDrop(e, sq);
+      d.onclick = () => manejarClick(sq);
+
+      const pieza = board[row][col];
+      if (pieza) {
+        const img = document.createElement('img');
+        img.src = `${PIEZAS}${pieza.color}${pieza.type.toUpperCase()}.svg`;
+        img.draggable = true;
+        img.ondragstart = e => onDragStart(e, sq);
+        img.onclick = e => { e.stopPropagation(); manejarClick(sq); };
+        d.appendChild(img);
+      }
+      cont.appendChild(d);
+    }
+  }
+}
+
+// ====== RELOJ ======
+function startClock() {
+  reloj = setInterval(() => {
+    const t = juego.turn();
+    tiempo[t]--;
+    if (tiempo[t] <= 0) finalizarJuego('⏰ Tiempo agotado');
+    updateClockUI();
+  }, 1000);
+}
+
+function updateClockUI() {
+  const f = s => Math.floor(s/60) + ':' + (s%60).toString().padStart(2,'0');
+  document.getElementById('tw').textContent = f(tiempo.w);
+  document.getElementById('tb').textContent = f(tiempo.b);
+  document.getElementById('cw').classList.toggle('active', juego.turn() === 'w' && partidaActiva);
+  document.getElementById('cb').classList.toggle('active', juego.turn() === 'b' && partidaActiva);
+}
+
+// ====== ESTADO ======
+function actualizarEstado() {
+  if (!partidaActiva) return;
+  const sb = document.getElementById('status-bar');
+  let msg = '', alert = false;
+  if (juego.in_checkmate()) {
+    msg = `🚩 Jaque Mate — Ganan ${juego.turn()==='w'?'Negras':'Blancas'}`;
+    alert = true; finalizarJuego(msg);
+  } else if (juego.in_draw()) {
+    msg = '🤝 Tablas'; finalizarJuego(msg);
+  } else if (juego.in_check()) {
+    msg = `⚠️ Jaque a las ${juego.turn()==='w'?'Blancas':'Negras'}`;
+    alert = true;
+  } else {
+    msg = juego.turn() === miColor ? '👉 Tu turno' : '⏳ Turno del rival';
+  }
+  sb.textContent = msg;
+  sb.className = 'alerta'.includes(alert) && alert ? 'alerta' : '';
+}
+
+function gestionarEfectos(mov) {
+  if (!mov) return;
+  if (juego.in_check()) sndCheck.play().catch(()=>{});
+  else if (mov.captured) sndCapture.play().catch(()=>{});
+  else sndMove.play().catch(()=>{});
+}
+
+function finalizarJuego(msg) {
+  partidaActiva = false;
+  clearInterval(reloj); reloj = null;
+  const sb = document.getElementById('status-bar');
+  sb.textContent = msg; sb.className = 'alerta';
+  document.getElementById('btn-nueva').disabled = false;
+}
+
+function girar() { orientacion = orientacion === 'w' ? 'b' : 'w'; render(); }
+function rendirse() {
+  if (!partidaActiva) return;
+  finalizarJuego('🏳️ Te rendiste');
+  if (conn) conn.send({ t: 'rend' });
+}
+
+render();
+</script>
+</body>
+</html>
