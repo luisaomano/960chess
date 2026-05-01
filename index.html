@@ -119,7 +119,6 @@ body {
 .waiting { color: #bc9eff; font-size: 13px; text-align: center; margin: 10px 0; animation: pulse 1.5s infinite; }
 @keyframes pulse { 0%,100% { opacity:1 } 50% { opacity:0.4 } }
 
-/* Estilos para Lobby Publico */
 #lobby-publico {
   width: 100%; margin-top: 15px;
   max-height: 200px; overflow-y: auto;
@@ -311,10 +310,8 @@ body {
 </div>
 
 <script>
-// ====== URL GOOGLE SHEETS ======
 const URL_API = "https://script.google.com/macros/s/AKfycbzJmZ7xkYPtIJRoWFrPJ7Pl1-ICP014-m1eFxB6bsvP3vsYiZot_8DzM7bfd4Ph5DSs/exec";
 
-// ====== ESTADO GLOBAL ======
 let juego = new Chess();
 let peer = new Peer();
 let conn = null;
@@ -328,21 +325,18 @@ let partidaActiva = false;
 let sqSel = null;
 let destinosPosibles = [];
 let config = { time: '10+0', mode: 'normal', color: 'w' };
-let connPendiente = null;
+let configRecibida = null;
 
 const PIEZAS = 'https://lichess1.org/assets/piece/cburnett/';
-
 const sndMove    = new Audio('https://assets.mixkit.co/active_storage/sfx/2571/2571-preview.mp3');
 const sndCapture = new Audio('https://assets.mixkit.co/active_storage/sfx/2572/2572-preview.mp3');
 const sndCheck   = new Audio('https://assets.mixkit.co/active_storage/sfx/2568/2568-preview.mp3');
 
-// ====== NAVEGACIÓN ======
 function go(id) {
   document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
   document.getElementById(id).classList.add('active');
 }
 
-// ====== OPCIONES ======
 document.querySelectorAll('[id^="og-"]').forEach(row => {
   row.querySelectorAll('.opt-btn').forEach(btn => {
     btn.addEventListener('click', () => {
@@ -354,7 +348,6 @@ document.querySelectorAll('[id^="og-"]').forEach(row => {
   });
 });
 
-// ====== PEER ======
 peer.on('open', id => { miID = id; });
 
 peer.on('connection', c => {
@@ -366,6 +359,10 @@ peer.on('connection', c => {
   orientacion = miColor;
   const cfg = buildConfigFromUI();
   const rivalColor = miColor === 'w' ? 'b' : 'w';
+  
+  // El Host avisa al Excel que la partida ya empezó
+  actualizarEstadoExcel(miID, "jugando");
+
   conn.send({ t: 'config', cfg, rivalColor });
   iniciarPartida(cfg);
   go('s-game');
@@ -373,12 +370,7 @@ peer.on('connection', c => {
 
 function buildConfigFromUI() {
   const [base, inc] = config.time.split('+').map(Number);
-  return {
-    base,
-    inc,
-    mode: config.mode,
-    hostColor: miColor
-  };
+  return { base, inc, mode: config.mode, hostColor: miColor };
 }
 
 function setupComms() {
@@ -386,12 +378,13 @@ function setupComms() {
     if (data.t === 'config') {
       miColor = data.rivalColor;
       orientacion = miColor;
-      connPendiente = null;
+      configRecibida = data.cfg;
       mostrarJoinPreview(data.cfg, data.rivalColor);
       return;
     }
     if (data.t === 'start') {
-      iniciarPartida(data.cfg);
+      // El host ya inició, ahora iniciamos nosotros (Guest)
+      iniciarPartida(configRecibida || data.cfg);
       go('s-game');
       return;
     }
@@ -402,15 +395,10 @@ function setupComms() {
       if (!reloj) startClock();
       render(); updateClockUI(); actualizarEstado();
     }
-    if (data.t === 'init') {
-      juego = data.fen ? new Chess(data.fen) : new Chess();
-      iniciarPartida(data.cfg);
-    }
     if (data.t === 'rend') finalizarJuego('🏆 El rival se rindió');
   });
 }
 
-// ====== CREAR PARTIDA (PUBLICAR EN EXCEL) ======
 function crearPartida() {
   go('s-lobby');
   function mostrarLobby() {
@@ -422,35 +410,21 @@ function crearPartida() {
     const cmap = { w: '♔ Blancas', b: '♚ Negras', r: '🎲 Aleatorio' };
     document.getElementById('l-color').textContent = cmap[config.color];
 
-    // Publicar en Google Sheets
     fetch(URL_API, {
       method: 'POST',
       mode: 'no-cors',
-      body: JSON.stringify({
-        action: "publicar",
-        id: miID,
-        tiempo: config.time,
-        modo: config.mode
-      })
+      body: JSON.stringify({ action: "publicar", id: miID, tiempo: config.time, modo: config.mode })
     });
   }
   mostrarLobby();
 }
 
-function copiarId() {
-  const id = document.getElementById('lobby-id').textContent;
-  navigator.clipboard.writeText(id).then(() => {
-    const el = document.querySelector('.id-copy');
-    el.textContent = '✅ Copiado!';
-    setTimeout(() => el.textContent = '📋 Copiar', 2000);
+function actualizarEstadoExcel(id, nuevoEstado) {
+  fetch(URL_API, {
+    method: 'POST',
+    mode: 'no-cors',
+    body: JSON.stringify({ action: "actualizarEstado", id: id, estado: nuevoEstado })
   });
-}
-
-// ====== UNIRSE Y LOBBY PUBLICO ======
-function formatJoinInput(el) {
-  let v = el.value.toUpperCase().replace(/[^A-Z0-9]/g, '');
-  if (v.length > 3) v = v.slice(0, 3) + '-' + v.slice(3, 6);
-  el.value = v;
 }
 
 function cargarLobbyPublico() {
@@ -468,10 +442,7 @@ function cargarLobbyPublico() {
         const div = document.createElement('div');
         div.className = 'partida-item';
         div.innerHTML = `<span>⏱ ${p.tiempo} | 🎲 ${p.modo}</span> <button class="opt-btn" style="padding:4px 8px">Unirse</button>`;
-        div.onclick = () => {
-          document.getElementById('join-input').value = p.id;
-          unirse(p.id);
-        };
+        div.onclick = () => unirse(p.id);
         lista.appendChild(div);
       });
     })
@@ -504,31 +475,26 @@ function mostrarJoinPreview(cfg, miCol) {
 }
 
 function confirmarUnirse() {
-  conn.send({ t: 'start', cfg: null });
-  const jpTime = document.getElementById('jp-time').textContent;
-  const jpMode = document.getElementById('jp-mode').textContent;
-  const [base, inc] = jpTime.split('+').map(s => parseInt(s));
-  iniciarPartida({ base, inc, mode: jpMode === 'Chess 960' ? '960' : 'normal' });
+  // Le avisamos al Host que estamos listos
+  conn.send({ t: 'start', cfg: configRecibida });
+  // Iniciamos localmente (Guest)
+  iniciarPartida(configRecibida);
   go('s-game');
 }
 
-// ====== PARTIDA ======
 function iniciarPartida(cfg) {
+  if (!cfg) return;
   partidaActiva = true;
   clearInterval(reloj); reloj = null;
   sqSel = null; destinosPosibles = [];
+  incremento = cfg.inc;
+  tiempo = { w: cfg.base * 60, b: cfg.base * 60 };
 
-  const base = cfg ? cfg.base : 10;
-  incremento = cfg ? cfg.inc : 0;
-  tiempo = { w: base * 60, b: base * 60 };
-
-  if (cfg && cfg.mode === '960') {
-    const pos960 = generar960();
-    juego = new Chess(pos960);
+  if (cfg.mode === '960') {
+    juego = new Chess(generar960());
   } else {
     juego = new Chess();
   }
-
   document.getElementById('btn-nueva').disabled = true;
   render(); updateClockUI(); actualizarEstado();
 }
@@ -542,29 +508,13 @@ function generar960() {
   return p.join('') + '/pppppppp/8/8/8/8/PPPPPPPP/' + p.map(x=>x.toUpperCase()).join('') + ' w - - 0 1';
 }
 
-function pedirNueva() {
-  juego = new Chess();
-  if (conn) conn.send({ t: 'init', fen: null, cfg: { base: tiempo.w/60, inc: incremento, mode: 'normal' } });
-  iniciarPartida({ base: Math.ceil(tiempo.w/60), inc: incremento, mode: 'normal' });
-}
-
-// ====== MOVIMIENTOS ======
 function intentarMovimiento(desde, hasta) {
   if (!partidaActiva || juego.turn() !== miColor) return false;
   const mov = juego.move({ from: desde, to: hasta, promotion: 'q' });
   if (!mov) return false;
-
   tiempo[miColor] += incremento;
   if (!reloj) startClock();
-
-  if (conn) conn.send({
-    t: 'mov',
-    m: { from: desde, to: hasta, promotion: 'q' },
-    captured: !!mov.captured,
-    san: mov.san,
-    tiempo
-  });
-
+  if (conn) conn.send({ t: 'mov', m: { from: desde, to: hasta, promotion: 'q' }, captured: !!mov.captured, san: mov.san, tiempo });
   gestionarEfectos(mov);
   sqSel = null; destinosPosibles = [];
   render(); updateClockUI(); actualizarEstado();
@@ -573,16 +523,12 @@ function intentarMovimiento(desde, hasta) {
 
 function manejarClick(sq) {
   if (!partidaActiva || juego.turn() !== miColor) return;
-  if (sqSel && destinosPosibles.includes(sq)) {
-    intentarMovimiento(sqSel, sq); return;
-  }
+  if (sqSel && destinosPosibles.includes(sq)) { intentarMovimiento(sqSel, sq); return; }
   const pieza = juego.get(sq);
   if (pieza && pieza.color === miColor) {
     sqSel = sq;
     destinosPosibles = juego.moves({ square: sq, verbose: true }).map(m => m.to);
-  } else {
-    sqSel = null; destinosPosibles = [];
-  }
+  } else { sqSel = null; destinosPosibles = []; }
   render();
 }
 
@@ -594,12 +540,6 @@ function onDragStart(ev, sq) {
   ev.dataTransfer.setData('text', sq);
 }
 
-function onDrop(ev, sq) {
-  ev.preventDefault();
-  intentarMovimiento(ev.dataTransfer.getData('text'), sq);
-}
-
-// ====== RENDER ======
 function render() {
   const cont = document.getElementById('tablero');
   cont.innerHTML = '';
@@ -609,16 +549,13 @@ function render() {
       const col = orientacion === 'w' ? c : 7 - c;
       const row = orientacion === 'w' ? r : 7 - r;
       const sq = 'abcdefgh'[col] + (8 - row);
-
       const d = document.createElement('div');
       d.className = 'casilla ' + ((r + c) % 2 ? 'oscura' : 'clara');
       if (sqSel === sq) d.classList.add('seleccionada');
       if (destinosPosibles.includes(sq)) d.classList.add('destino-posible');
-
       d.ondragover = e => e.preventDefault();
-      d.ondrop = e => onDrop(e, sq);
+      d.ondrop = e => intentarMovimiento(e.dataTransfer.getData('text'), sq);
       d.onclick = () => manejarClick(sq);
-
       const pieza = board[row][col];
       if (pieza) {
         const img = document.createElement('img');
@@ -633,7 +570,6 @@ function render() {
   }
 }
 
-// ====== RELOJ ======
 function startClock() {
   reloj = setInterval(() => {
     const t = juego.turn();
@@ -651,22 +587,14 @@ function updateClockUI() {
   document.getElementById('cb').classList.toggle('active', juego.turn() === 'b' && partidaActiva);
 }
 
-// ====== ESTADO ======
 function actualizarEstado() {
   if (!partidaActiva) return;
   const sb = document.getElementById('status-bar');
   let msg = '', isAlert = false;
-  if (juego.in_checkmate()) {
-    msg = `🚩 Jaque Mate — Ganan ${juego.turn()==='w'?'Negras':'Blancas'}`;
-    isAlert = true; finalizarJuego(msg);
-  } else if (juego.in_draw()) {
-    msg = '🤝 Tablas'; finalizarJuego(msg);
-  } else if (juego.in_check()) {
-    msg = `⚠️ Jaque a las ${juego.turn()==='w'?'Blancas':'Negras'}`;
-    isAlert = true;
-  } else {
-    msg = juego.turn() === miColor ? '👉 Tu turno' : '⏳ Turno del rival';
-  }
+  if (juego.in_checkmate()) { msg = `🚩 Jaque Mate — Ganan ${juego.turn()==='w'?'Negras':'Blancas'}`; isAlert = true; finalizarJuego(msg); }
+  else if (juego.in_draw()) { msg = '🤝 Tablas'; finalizarJuego(msg); }
+  else if (juego.in_check()) { msg = `⚠️ Jaque a las ${juego.turn()==='w'?'Blancas':'Negras'}`; isAlert = true; }
+  else { msg = juego.turn() === miColor ? '👉 Tu turno' : '⏳ Turno del rival'; }
   sb.textContent = msg;
   sb.className = isAlert ? 'alerta' : '';
 }
@@ -687,10 +615,21 @@ function finalizarJuego(msg) {
 }
 
 function girar() { orientacion = orientacion === 'w' ? 'b' : 'w'; render(); }
-function rendirse() {
-  if (!partidaActiva) return;
-  finalizarJuego('🏳️ Te rendiste');
-  if (conn) conn.send({ t: 'rend' });
+function rendirse() { if (!partidaActiva) return; finalizarJuego('🏳️ Te rendiste'); if (conn) conn.send({ t: 'rend' }); }
+
+function copiarId() {
+  const id = document.getElementById('lobby-id').textContent;
+  navigator.clipboard.writeText(id).then(() => {
+    const el = document.querySelector('.id-copy');
+    el.textContent = '✅ Copiado!';
+    setTimeout(() => el.textContent = '📋 Copiar', 2000);
+  });
+}
+
+function formatJoinInput(el) {
+  let v = el.value.toUpperCase().replace(/[^A-Z0-9]/g, '');
+  if (v.length > 3) v = v.slice(0, 3) + '-' + v.slice(3, 6);
+  el.value = v;
 }
 
 render();
