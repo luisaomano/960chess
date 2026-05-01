@@ -119,6 +119,19 @@ body {
 .waiting { color: #bc9eff; font-size: 13px; text-align: center; margin: 10px 0; animation: pulse 1.5s infinite; }
 @keyframes pulse { 0%,100% { opacity:1 } 50% { opacity:0.4 } }
 
+/* Estilos para Lobby Publico */
+#lobby-publico {
+  width: 100%; margin-top: 15px;
+  max-height: 200px; overflow-y: auto;
+  background: rgba(0,0,0,0.2); border-radius: 8px; padding: 10px;
+}
+.partida-item {
+  display: flex; justify-content: space-between; align-items: center;
+  padding: 8px; border-bottom: 1px solid rgba(255,255,255,0.1);
+  font-size: 13px; cursor: pointer;
+}
+.partida-item:hover { background: rgba(255,255,255,0.05); }
+
 /* ======= JUEGO ======= */
 #s-game {
   padding: 16px;
@@ -185,16 +198,14 @@ body {
 </head>
 <body>
 
-<!-- HOME -->
 <div id="s-home" class="screen active">
   <p style="font-size:40px;margin:20px 0 0;text-align:center">♟️</p>
   <h1 class="screen-title" style="margin-top:8px">Ajedrez Online</h1>
   <p class="screen-sub">Jugá con un amigo en tiempo real</p>
   <button class="btn-primary" onclick="go('s-config')">Crear partida</button>
-  <button class="btn-secondary" onclick="go('s-join')">Unirse con ID</button>
+  <button class="btn-secondary" onclick="go('s-join'); cargarLobbyPublico();">Unirse a partida</button>
 </div>
 
-<!-- CONFIG -->
 <div id="s-config" class="screen">
   <h2 class="screen-title">Nueva partida</h2>
   <p class="screen-sub">Configurá las reglas</p>
@@ -226,14 +237,13 @@ body {
   </div>
 
   <hr class="divider">
-  <button class="btn-primary" onclick="crearPartida()">Crear y obtener ID</button>
+  <button class="btn-primary" onclick="crearPartida()">Crear y publicar ID</button>
   <button class="btn-secondary" onclick="go('s-home')">← Volver</button>
 </div>
 
-<!-- LOBBY (esperando rival) -->
 <div id="s-lobby" class="screen">
   <h2 class="screen-title">Partida creada</h2>
-  <p class="screen-sub">Compartí tu ID con el rival</p>
+  <p class="screen-sub">Compartí tu ID o esperá en el lobby público</p>
 
   <div class="id-box">
     <p class="id-label">TU ID DE PARTIDA</p>
@@ -251,17 +261,21 @@ body {
   <button class="btn-secondary" onclick="go('s-config')">← Cambiar configuración</button>
 </div>
 
-<!-- JOIN -->
 <div id="s-join" class="screen">
   <h2 class="screen-title">Unirse</h2>
-  <p class="screen-sub">Ingresá el ID de la partida</p>
+  <p class="screen-sub">Ingresá ID o elegí del lobby público</p>
   <input class="join-input" id="join-input" placeholder="ABC-123" maxlength="7" oninput="formatJoinInput(this)">
-  <button class="btn-primary" onclick="unirse()">Ver partida y unirse</button>
+  <button class="btn-primary" onclick="unirse()">Conectar con ID</button>
+  
+  <div id="lobby-publico">
+    <p style="text-align:center; font-size: 11px; color: #bc9eff; margin-bottom: 5px;">PARTIDAS PÚBLICAS</p>
+    <div id="lista-partidas">Cargando...</div>
+  </div>
+
   <button class="btn-secondary" onclick="go('s-home')">← Volver</button>
   <p id="join-err" style="color:#ff4d4d;font-size:13px;margin-top:8px;text-align:center;min-height:1em"></p>
 </div>
 
-<!-- JOIN PREVIEW -->
 <div id="s-join-preview" class="screen">
   <h2 class="screen-title">Detalles</h2>
   <p class="screen-sub">Revisá la partida antes de entrar</p>
@@ -276,7 +290,6 @@ body {
   <button class="btn-secondary" onclick="go('s-join')">← Volver</button>
 </div>
 
-<!-- JUEGO -->
 <div id="s-game" class="screen">
   <div id="game-header">
     <button class="g-btn" onclick="rendirse()">🏳️ Rendirse</button>
@@ -298,6 +311,9 @@ body {
 </div>
 
 <script>
+// ====== URL GOOGLE SHEETS ======
+const URL_API = "https://script.google.com/macros/s/AKfycbzJmZ7xkYPtIJRoWFrPJ7Pl1-ICP014-m1eFxB6bsvP3vsYiZot_8DzM7bfd4Ph5DSs/exec";
+
 // ====== ESTADO GLOBAL ======
 let juego = new Chess();
 let peer = new Peer();
@@ -312,11 +328,10 @@ let partidaActiva = false;
 let sqSel = null;
 let destinosPosibles = [];
 let config = { time: '10+0', mode: 'normal', color: 'w' };
-let connPendiente = null; // info recibida al conectarse como guest
+let connPendiente = null;
 
 const PIEZAS = 'https://lichess1.org/assets/piece/cburnett/';
 
-// Sonidos
 const sndMove    = new Audio('https://assets.mixkit.co/active_storage/sfx/2571/2571-preview.mp3');
 const sndCapture = new Audio('https://assets.mixkit.co/active_storage/sfx/2572/2572-preview.mp3');
 const sndCheck   = new Audio('https://assets.mixkit.co/active_storage/sfx/2568/2568-preview.mp3');
@@ -345,12 +360,10 @@ peer.on('open', id => { miID = id; });
 peer.on('connection', c => {
   conn = c;
   setupComms();
-  // Resolvemos color
   let colorFinal = config.color;
   if (colorFinal === 'r') colorFinal = Math.random() < 0.5 ? 'w' : 'b';
   miColor = colorFinal;
   orientacion = miColor;
-  // Enviamos config al rival
   const cfg = buildConfigFromUI();
   const rivalColor = miColor === 'w' ? 'b' : 'w';
   conn.send({ t: 'config', cfg, rivalColor });
@@ -371,7 +384,6 @@ function buildConfigFromUI() {
 function setupComms() {
   conn.on('data', data => {
     if (data.t === 'config') {
-      // Recibido por el que se une
       miColor = data.rivalColor;
       orientacion = miColor;
       connPendiente = null;
@@ -398,10 +410,9 @@ function setupComms() {
   });
 }
 
-// ====== CREAR PARTIDA ======
+// ====== CREAR PARTIDA (PUBLICAR EN EXCEL) ======
 function crearPartida() {
   go('s-lobby');
-  // Mostramos el ID (ya disponible o esperamos)
   function mostrarLobby() {
     if (!miID) { setTimeout(mostrarLobby, 200); return; }
     document.getElementById('lobby-id').textContent = miID;
@@ -410,6 +421,18 @@ function crearPartida() {
     document.getElementById('l-mode').textContent = config.mode === '960' ? 'Chess 960' : 'Normal';
     const cmap = { w: '♔ Blancas', b: '♚ Negras', r: '🎲 Aleatorio' };
     document.getElementById('l-color').textContent = cmap[config.color];
+
+    // Publicar en Google Sheets
+    fetch(URL_API, {
+      method: 'POST',
+      mode: 'no-cors',
+      body: JSON.stringify({
+        action: "publicar",
+        id: miID,
+        tiempo: config.time,
+        modo: config.mode
+      })
+    });
   }
   mostrarLobby();
 }
@@ -423,26 +446,49 @@ function copiarId() {
   });
 }
 
-// ====== UNIRSE ======
+// ====== UNIRSE Y LOBBY PUBLICO ======
 function formatJoinInput(el) {
   let v = el.value.toUpperCase().replace(/[^A-Z0-9]/g, '');
   if (v.length > 3) v = v.slice(0, 3) + '-' + v.slice(3, 6);
   el.value = v;
 }
 
-function unirse() {
-  const id = document.getElementById('join-input').value.replace('-', '');
-  const full = document.getElementById('join-input').value.trim();
-  if (full.length < 3) {
+function cargarLobbyPublico() {
+  const lista = document.getElementById('lista-partidas');
+  lista.innerHTML = 'Buscando partidas...';
+  fetch(URL_API)
+    .then(res => res.json())
+    .then(data => {
+      lista.innerHTML = '';
+      if (data.length === 0) {
+        lista.innerHTML = '<p style="text-align:center; padding:10px; opacity:0.5">No hay partidas activas</p>';
+        return;
+      }
+      data.forEach(p => {
+        const div = document.createElement('div');
+        div.className = 'partida-item';
+        div.innerHTML = `<span>⏱ ${p.tiempo} | 🎲 ${p.modo}</span> <button class="opt-btn" style="padding:4px 8px">Unirse</button>`;
+        div.onclick = () => {
+          document.getElementById('join-input').value = p.id;
+          unirse(p.id);
+        };
+        lista.appendChild(div);
+      });
+    })
+    .catch(() => { lista.innerHTML = 'Error al cargar lobby'; });
+}
+
+function unirse(idOverride) {
+  const id = idOverride || document.getElementById('join-input').value.trim();
+  if (id.length < 3) {
     document.getElementById('join-err').textContent = 'Ingresá el ID completo';
     return;
   }
   document.getElementById('join-err').textContent = 'Conectando...';
-  conn = peer.connect(full);
+  conn = peer.connect(id);
   conn.on('open', () => {
     document.getElementById('join-err').textContent = '';
     setupComms();
-    // La config llega via 'config' message
   });
   conn.on('error', () => {
     document.getElementById('join-err').textContent = 'No se encontró la partida';
@@ -458,12 +504,7 @@ function mostrarJoinPreview(cfg, miCol) {
 }
 
 function confirmarUnirse() {
-  // Avisamos al host que confirmamos
   conn.send({ t: 'start', cfg: null });
-  // Aplicamos config ya recibida
-  // miColor ya fue seteado en setupComms
-  // Pedimos al host la cfg completa vía el mensaje 'config' ya recibido
-  // Necesitamos guardar la cfg
   const jpTime = document.getElementById('jp-time').textContent;
   const jpMode = document.getElementById('jp-mode').textContent;
   const [base, inc] = jpTime.split('+').map(s => parseInt(s));
@@ -614,20 +655,20 @@ function updateClockUI() {
 function actualizarEstado() {
   if (!partidaActiva) return;
   const sb = document.getElementById('status-bar');
-  let msg = '', alert = false;
+  let msg = '', isAlert = false;
   if (juego.in_checkmate()) {
     msg = `🚩 Jaque Mate — Ganan ${juego.turn()==='w'?'Negras':'Blancas'}`;
-    alert = true; finalizarJuego(msg);
+    isAlert = true; finalizarJuego(msg);
   } else if (juego.in_draw()) {
     msg = '🤝 Tablas'; finalizarJuego(msg);
   } else if (juego.in_check()) {
     msg = `⚠️ Jaque a las ${juego.turn()==='w'?'Blancas':'Negras'}`;
-    alert = true;
+    isAlert = true;
   } else {
     msg = juego.turn() === miColor ? '👉 Tu turno' : '⏳ Turno del rival';
   }
   sb.textContent = msg;
-  sb.className = 'alerta'.includes(alert) && alert ? 'alerta' : '';
+  sb.className = isAlert ? 'alerta' : '';
 }
 
 function gestionarEfectos(mov) {
